@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flask: backend (debug)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/api/app.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "justMyCode": true
+    },
+    {
+      "type": "chrome",
+      "name": "http://127.0.0.1:3002/Frontend/index.html",
+      "request": "launch",
+      "url": "http://127.0.0.1:3002/Frontend/index.html"
+    }
+  ]
+}
