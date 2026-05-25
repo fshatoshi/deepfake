@@ -35,7 +35,7 @@ Ce projet a été conçu pour illustrer comment un réseau de neurones peut êtr
 Le projet a été nettoyé et consolidé dans l'architecture **V2** suivante :
 
 ```text
-Deepfake_Project/
+Vision_project/
 └── securai_store/           # Cœur du POC
     ├── app.py               # Serveur backend (Flask, multithreading vidéo)
     ├── rights_manager.py    # Gestionnaire des rôles (Admin, Employé, Inconnu)

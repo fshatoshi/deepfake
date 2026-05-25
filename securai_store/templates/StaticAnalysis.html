@@ -190,6 +190,88 @@
         .spinner { width: 50px; height: 50px; border: 4px solid rgba(255,214,0,0.2); border-top-color: var(--color-warn); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        /* --- Adversarial Glasses Panel --- */
+        .glasses-section {
+            border-top: 1px solid var(--border-color);
+            padding-top: 20px;
+        }
+        .glasses-icon-label {
+            font-size: 1.2rem; font-weight: 700;
+            color: var(--color-warn);
+            display: flex; align-items: center; gap: 8px;
+            margin-bottom: 14px;
+        }
+        .target-select {
+            width: 100%; padding: 8px 12px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-main);
+            font-family: var(--font-data);
+            font-size: 0.85rem;
+            margin-bottom: 12px;
+            cursor: pointer;
+        }
+        .target-select:focus { outline: none; border-color: var(--color-warn); }
+        .btn-glasses {
+            width: 100%; padding: 11px;
+            background: linear-gradient(135deg, rgba(255,214,0,0.15), rgba(255,214,0,0.05));
+            border: 1px solid var(--color-warn);
+            border-radius: 6px;
+            color: var(--color-warn);
+            font-family: var(--font-ui);
+            font-size: 1rem; font-weight: 700;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.25s;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        .btn-glasses:hover:not(:disabled) {
+            background: rgba(255,214,0,0.25);
+            box-shadow: 0 0 18px rgba(255,214,0,0.3);
+        }
+        .btn-glasses:disabled { opacity: 0.4; cursor: not-allowed; }
+        .comparison-grid {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 8px; margin-top: 14px;
+        }
+        .comp-col { display: flex; flex-direction: column; gap: 6px; }
+        .comp-col-label {
+            text-align: center; font-size: 0.75rem;
+            color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;
+        }
+        .comp-img {
+            width: 100%; border-radius: 6px;
+            border: 1px solid var(--border-color);
+            object-fit: cover; aspect-ratio: 1;
+            display: none; background: #111;
+        }
+        .comp-score {
+            text-align: center;
+            font-family: var(--font-data); font-size: 0.8rem;
+        }
+        .comp-score span { display: block; font-size: 1rem; font-weight: 700; }
+        .attack-result-banner {
+            margin-top: 12px; padding: 10px;
+            border-radius: 6px; text-align: center;
+            font-weight: 700; font-size: 0.95rem;
+            display: none;
+        }
+        .attack-result-banner.success {
+            background: rgba(0,230,118,0.1); border: 1px solid var(--color-ok);
+            color: var(--color-ok);
+        }
+        .attack-result-banner.fail {
+            background: rgba(255,23,68,0.1); border: 1px solid var(--color-danger);
+            color: var(--color-danger);
+        }
+        .spinner-sm {
+            width: 16px; height: 16px;
+            border: 2px solid rgba(255,214,0,0.3);
+            border-top-color: var(--color-warn);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
     </style>
 </head>
 <body>
@@ -239,102 +321,205 @@
                 </div>
             </div>
         </div>
+
+        <!-- ADVERSARIAL GLASSES SECTION -->
+        <div class="glasses-section">
+            <div class="glasses-icon-label">🕶️ Lunettes Adversariales</div>
+            <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;">
+                Génère un patch en forme de lunettes pour usurper l'identité de la cible.
+            </div>
+
+            <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Identité Cible</div>
+            <select id="glasses-target" class="target-select">
+                <option value="Manager_Demo">Manager_Demo (Admin)</option>
+                <option value="Employee_Demo">Employee_Demo (Employé)</option>
+            </select>
+
+            <button id="btn-glasses-attack" class="btn-glasses" disabled title="Uploadez une image d'abord">
+                🕶️ GÉNÉRER L'ATTAQUE
+            </button>
+
+            <!-- Comparaison Avant/Après -->
+            <div class="comparison-grid" id="glasses-comparison" style="display:none;">
+                <div class="comp-col">
+                    <div class="comp-col-label">Avant</div>
+                    <img id="comp-before" class="comp-img" alt="Avant">
+                    <div class="comp-score">
+                        <span id="score-before" style="color:var(--text-muted);">—</span>
+                        <div style="color:var(--text-muted);font-size:0.7rem;">Identifié</div>
+                    </div>
+                </div>
+                <div class="comp-col">
+                    <div class="comp-col-label">Après</div>
+                    <img id="comp-after" class="comp-img" alt="Après">
+                    <div class="comp-score">
+                        <span id="score-after" style="color:var(--color-warn);">—</span>
+                        <div style="color:var(--text-muted);font-size:0.7rem;">Identifié</div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="attack-result-banner" class="attack-result-banner"></div>
+        </div>
     </div>
 
     <script>
-        const dropZone = document.getElementById('drop-zone');
-        const fileInput = document.getElementById('file-input');
-        const previewImg = document.getElementById('preview-img');
+        const dropZone      = document.getElementById('drop-zone');
+        const fileInput     = document.getElementById('file-input');
+        const previewImg    = document.getElementById('preview-img');
         const uploadContent = document.getElementById('upload-content');
-        const loading = document.getElementById('loading');
-        const panelRight = document.getElementById('panel-right');
+        const loading       = document.getElementById('loading');
+        const panelRight    = document.getElementById('panel-right');
 
-        // Drag and Drop events
-        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            dropZone.addEventListener(eventName, preventDefaults, false);
-        });
+        // --- Drag and Drop events ---
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev =>
+            dropZone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); }));
+        ['dragenter', 'dragover'].forEach(ev =>
+            dropZone.addEventListener(ev, () => dropZone.classList.add('dragover')));
+        ['dragleave', 'drop'].forEach(ev =>
+            dropZone.addEventListener(ev, () => dropZone.classList.remove('dragover')));
+        dropZone.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
+        fileInput.addEventListener('change', function () { handleFiles(this.files); });
 
-        function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
-
-        ['dragenter', 'dragover'].forEach(eventName => {
-            dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
-        });
-
-        ['dragleave', 'drop'].forEach(eventName => {
-            dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
-        });
-
-        dropZone.addEventListener('drop', handleDrop, false);
-        fileInput.addEventListener('change', function() { handleFiles(this.files); });
-
-        function handleDrop(e) {
-            const dt = e.dataTransfer;
-            const files = dt.files;
-            handleFiles(files);
-        }
+        // --- État global ---
+        let currentFile = null;
+        let currentBeforeB64 = null;
 
         function handleFiles(files) {
-            if (files.length > 0) {
-                const file = files[0];
-                if (file.type.startsWith('image/')) {
-                    // Preview local file briefly
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        previewImg.src = e.target.result;
-                        previewImg.style.display = 'block';
-                        uploadContent.style.display = 'none';
-                    }
-                    reader.readAsDataURL(file);
-                    
-                    // Upload and analyze
-                    uploadFile(file);
-                }
+            if (files.length > 0 && files[0].type.startsWith('image/')) {
+                currentFile = files[0];
+                const reader = new FileReader();
+                reader.onload = e => {
+                    previewImg.src = e.target.result;
+                    previewImg.style.display = 'block';
+                    uploadContent.style.display = 'none';
+                    currentBeforeB64 = e.target.result;
+                };
+                reader.readAsDataURL(currentFile);
+
+                // Activer le bouton lunettes
+                document.getElementById('btn-glasses-attack').disabled = false;
+
+                // Réinitialiser la comparaison
+                resetComparison();
+
+                uploadFile(currentFile);
             }
         }
 
         async function uploadFile(file) {
             loading.style.display = 'flex';
-            
             const formData = new FormData();
             formData.append('image', file);
-
             try {
-                const response = await fetch('/api/analyze_static', {
-                    method: 'POST',
-                    body: formData
-                });
+                const response = await fetch('/api/analyze_static', { method: 'POST', body: formData });
                 const data = await response.json();
-                
                 loading.style.display = 'none';
-                
-                if (data.success) {
-                    updateUI(data.results);
-                } else {
-                    alert("Erreur: " + data.error);
-                }
-            } catch (error) {
+                if (data.success) updateUI(data.results);
+                else alert('Erreur: ' + data.error);
+            } catch (err) {
                 loading.style.display = 'none';
-                console.error('Upload Error:', error);
-                alert('Erreur réseau lors de l\'analyse');
+                alert('Erreur réseau lors de l\'analyse.');
             }
         }
 
-        function updateUI(res) {
-            // Image Base64 with Bbox
-            if (res.image_base64) {
-                previewImg.src = "data:image/jpeg;base64," + res.image_base64;
-            }
+        // --- Adversarial Glasses Attack ---
+        const btnGlasses = document.getElementById('btn-glasses-attack');
 
-            // Identity
-            const idName = res.identity !== "Inconnu" && res.identity !== "Aucun visage" ? res.identity : "INCONNU";
+        btnGlasses.addEventListener('click', async () => {
+            if (!currentFile) return;
+
+            const targetName = document.getElementById('glasses-target').value;
+
+            // Spinner dans le bouton
+            btnGlasses.disabled = true;
+            btnGlasses.innerHTML = '<div class="spinner-sm"></div> CALCUL EN COURS...';
+
+            const formData = new FormData();
+            formData.append('image', currentFile);
+            formData.append('target', targetName);
+
+            try {
+                const resp = await fetch('/api/generate_glasses_attack', { method: 'POST', body: formData });
+                const data = await resp.json();
+
+                btnGlasses.innerHTML = '🕶️ GÉNÉRER L\'ATTAQUE';
+                btnGlasses.disabled = false;
+
+                if (!data.success) {
+                    alert('Erreur attaque: ' + data.error);
+                    return;
+                }
+
+                // Afficher la comparaison
+                const comparison = document.getElementById('glasses-comparison');
+                comparison.style.display = 'grid';
+
+                // Image AVANT (snapshot local)
+                const imgBefore = document.getElementById('comp-before');
+                imgBefore.src = currentBeforeB64;
+                imgBefore.style.display = 'block';
+
+                // Image APRÈS (retournée par l'API)
+                const imgAfter = document.getElementById('comp-after');
+                imgAfter.src = 'data:image/jpeg;base64,' + data.after.image_base64;
+                imgAfter.style.display = 'block';
+
+                // Remplacer la preview principale par l'image attaquée
+                previewImg.src = imgAfter.src;
+
+                // Scores
+                const scorePct_before = (data.before.confidence * 100).toFixed(1);
+                const scorePct_after  = (data.after.confidence  * 100).toFixed(1);
+                document.getElementById('score-before').innerText =
+                    `${data.before.identity} ${scorePct_before}%`;
+                document.getElementById('score-after').innerText =
+                    `${data.after.identity} ${scorePct_after}%`;
+
+                // Bannière résultat
+                const banner = document.getElementById('attack-result-banner');
+                banner.style.display = 'block';
+                const success = data.after.identity === targetName;
+                banner.className = 'attack-result-banner ' + (success ? 'success' : 'fail');
+                if (success) {
+                    banner.innerText = `✅ SPOOFING RÉUSSI ! Identifié comme ${targetName} (${scorePct_after}%)`;
+                    // Mettre à jour le panneau d'identité principal
+                    updateUI(Object.assign({}, data.after));
+                } else {
+                    banner.innerText = `❌ Attaque insuffisante — Toujours identifié: ${data.after.identity} (${scorePct_after}%)`;
+                }
+
+            } catch (err) {
+                btnGlasses.innerHTML = '🕶️ GÉNÉRER L\'ATTAQUE';
+                btnGlasses.disabled = false;
+                alert('Erreur réseau lors de l\'attaque: ' + err);
+            }
+        });
+
+        function resetComparison() {
+            document.getElementById('glasses-comparison').style.display = 'none';
+            document.getElementById('comp-before').style.display = 'none';
+            document.getElementById('comp-after').style.display = 'none';
+            document.getElementById('attack-result-banner').style.display = 'none';
+            document.getElementById('score-before').innerText = '—';
+            document.getElementById('score-after').innerText = '—';
+        }
+
+        // --- Mise à jour UI principale ---
+        function updateUI(res) {
+            if (res.image_base64) {
+                previewImg.src = 'data:image/jpeg;base64,' + res.image_base64;
+            }
+            const idName = (res.identity !== 'Inconnu' && res.identity !== 'Aucun visage')
+                ? res.identity : 'INCONNU';
             document.getElementById('ui-name').innerText = idName.toUpperCase();
             document.getElementById('ui-conf').innerText = `${(res.confidence * 100).toFixed(1)}%`;
             document.getElementById('ui-access-level').innerText = res.access_level;
 
-            panelRight.className = 'panel panel-right'; // Reset
-            if (res.identity === "Aucun visage") {
+            panelRight.className = 'panel panel-right';
+            if (res.identity === 'Aucun visage') {
                 document.getElementById('id-photo').innerText = '❓';
-            } else if (idName !== "INCONNU") {
+            } else if (idName !== 'INCONNU') {
                 if (res.access_level === 'ADMIN') {
                     panelRight.classList.add('status-granted');
                     document.getElementById('id-photo').innerText = '✓';
@@ -350,11 +535,9 @@
                 document.getElementById('id-photo').innerText = '👤';
             }
 
-            // Anomaly
             const anomAlert = document.getElementById('anomaly-alert');
-            const anomBar = document.getElementById('anomaly-bar');
-            
-            if (res.identity === "Aucun visage") {
+            const anomBar   = document.getElementById('anomaly-bar');
+            if (res.identity === 'Aucun visage') {
                 anomAlert.className = 'alert-box';
                 anomAlert.innerText = 'AUCUN VISAGE À ANALYSER';
                 anomBar.style.width = '0%';
@@ -368,11 +551,10 @@
                 anomAlert.innerText = 'IMAGE INTÈGRE';
                 anomBar.classList.remove('high');
             }
-            
-            const scoreVal = res.anomaly_score.toFixed(3);
+            const scoreVal = (res.anomaly_score || 0).toFixed(3);
             document.getElementById('anomaly-score-text').innerText = scoreVal;
             document.getElementById('anomaly-bar').style.width = `${Math.min(scoreVal * 100, 100)}%`;
         }
     </script>
-</body>
+    </body>
 </html>

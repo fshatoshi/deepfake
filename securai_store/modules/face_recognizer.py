@@ -12,10 +12,10 @@ class FaceRecognizer:
         Initialise le reconnaisseur avec FaceNet (InceptionResnetV1 pré-entraîné).
         Utilise la méthode des embeddings.
         """
-        self.device = torch.device("cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.mode = mode
         
-        print("Chargement de FaceNet (InceptionResnetV1)...")
+        print(f"Chargement de FaceNet (InceptionResnetV1) sur {self.device}...")
         # Le modèle retourne un vecteur 512D
         self.model = InceptionResnetV1(pretrained='vggface2').eval().to(self.device)
         

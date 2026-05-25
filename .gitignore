@@ -19,11 +19,15 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# Logs / secrets
+*.log
+.env
+.env.*
+
 # Project specific
 securai_store/models/*.pt
 securai_store/models/*.pth
 securai_store/models/*.h5
 yolov8n.pt
 
-# Ignore large datasets if accidentally placed
-data/
+

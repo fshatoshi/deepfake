@@ -1,6 +1,7 @@
-torch==2.2.0+cpu  # CPU-only, pas de cuda
-torchvision==0.17.0+cpu
-ultralytics>=8.0  # YOLOv8
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+ultralytics>=8.0
 opencv-python>=4.9
 flask>=3.0
 numpy>=1.26
@@ -8,3 +9,4 @@ Pillow>=10.0
 scikit-learn>=1.4
 tqdm>=4.66
 pytest
+facenet-pytorch>=2.5.0

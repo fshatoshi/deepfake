@@ -37,5 +37,16 @@ Pour tester le système avec les protections actives (Adversarial Training + Ano
 python simulate.py --mode hardened --defense all
 ```
 
+## 4. Google Colab (GPU T4)
+
+Sur Drive, copier ce dossier vers : `MyDrive/Vision_project/securai_store`
+
+| Fichier | Usage |
+|---------|--------|
+| `init_server.ipynb` | SSH + tunnel Cloudflare (`ssh vision-colab`) |
+| `webcam_demo.ipynb` | Démo sans SSH — flux webcam navigateur |
+| `train.py` | Entraînement + checkpoints (30 min) |
+| `colab/setup_colab_deps.sh` | Install dépendances GPU |
+
 ---
 *Projet développé dans le cadre de la recherche sur la robustesse des modèles CNN face aux attaques de type FGSM.*

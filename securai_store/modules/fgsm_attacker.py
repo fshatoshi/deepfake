@@ -11,9 +11,10 @@ class FGSMAttacker:
         """
         self.model = model
         self.epsilon = epsilon
+        self.device = next(model.parameters()).device
         # FaceNet normalization
-        self.mean = torch.tensor([0.5, 0.5, 0.5]).view(1, 3, 1, 1)
-        self.std = torch.tensor([0.5, 0.5, 0.5]).view(1, 3, 1, 1)
+        self.mean = torch.tensor([0.5, 0.5, 0.5]).view(1, 3, 1, 1).to(self.device)
+        self.std = torch.tensor([0.5, 0.5, 0.5]).view(1, 3, 1, 1).to(self.device)
 
     def preprocess(self, face_crop: np.ndarray):
         face_rgb = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
@@ -21,8 +22,8 @@ class FGSMAttacker:
         face_resized = cv2.resize(face_rgb, (160, 160))
         img_tensor = torch.from_numpy(face_resized.transpose(2, 0, 1)).float() / 255.0
         # Normalize
-        img_tensor = (img_tensor - self.mean.squeeze(0)) / self.std.squeeze(0)
-        return img_tensor.unsqueeze(0)
+        img_tensor = (img_tensor - self.mean.cpu().squeeze(0)) / self.std.cpu().squeeze(0)
+        return img_tensor.unsqueeze(0).to(self.device)
 
     def attack(self, face_crop: np.ndarray, target_embedding=None, steps=10):
         """
@@ -41,6 +42,8 @@ class FGSMAttacker:
             embedding = F.normalize(embedding, p=2, dim=1)
             
             if target_embedding is not None:
+                # S'assurer que l'embedding cible est sur le bon device
+                target_embedding = target_embedding.to(self.device)
                 # Attaque ciblée
                 loss = 1.0 - F.cosine_similarity(embedding, target_embedding)
                 sign = -1.0
@@ -67,7 +70,7 @@ class FGSMAttacker:
         perturbed_image = torch.clamp(perturbed_image, 0, 1)
         
         # Retour BGR
-        perturbed_np = perturbed_image.squeeze(0).detach().numpy().transpose(1, 2, 0)
+        perturbed_np = perturbed_image.squeeze(0).detach().cpu().numpy().transpose(1, 2, 0)
         perturbed_bgr = cv2.cvtColor((perturbed_np * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
         
         h, w = face_crop.shape[:2]
@@ -85,5 +88,5 @@ class FGSMAttacker:
         noise = self.epsilon * img_tensor.grad.data.sign()
         noise = torch.clamp(noise * 10, -1, 1) 
         
-        noise_np = noise.squeeze(0).detach().numpy().transpose(1, 2, 0)
+        noise_np = noise.squeeze(0).detach().cpu().numpy().transpose(1, 2, 0)
         return ((noise_np + 1) / 2 * 255).astype(np.uint8)
