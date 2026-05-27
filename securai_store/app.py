@@ -27,7 +27,11 @@ HF_ENROLL_URL    = f'{HF_BASE}/enroll'
 
 FRAME_SKIP       = 3       # envoie 1 frame sur 3 vers HF
 FACE_CROP_SIZE   = 160
+PATCH_REFRESH    = 15      # T1 — recalcule le patch toutes les N frames (~0.5s à 30fps)
 DEBUG            = False   # passe à True pour logs verbeux
+
+# T1 — Cache du dernier crop attaqué par le PatchAttacker (évite de bloquer le thread vidéo)
+_patch_cache: dict = {'crop': None}
 
 app = Flask(__name__)
 os.makedirs(ENROLLED_DIR, exist_ok=True)
@@ -55,6 +59,8 @@ class SystemState:
     anomaly_detected: bool  = False
     anomaly_score:    float = 0.0
     attack_active:    bool  = False
+    patch_active:     bool  = False          # T1 — attaque lunettes en live
+    patch_target:     str   = "Manager_Demo" # T1 — identité cible du patch
     model_mode:       str   = "standard"
     fps:              int   = 0
     confidence:       float = 0.0
@@ -269,11 +275,14 @@ def _video_thread():
 
         with state_lock:
             attack_active = state.attack_active
+            patch_active  = state.patch_active   # T1
+            patch_target  = state.patch_target   # T1
             current_mode  = state.model_mode
 
         bboxes      = face_detector.detect(frame)
         is_attacked = False
         anom_score  = 0.0
+        patch_label = ""                          # T1 — label overlay conditionnel
 
         if bboxes:
             bbox      = bboxes[0]
@@ -285,6 +294,27 @@ def _video_thread():
                     attacked = send_to_hf_fgsm(face_crop)
                     if attacked is not None:
                         face_crop = attacked
+
+                # ── T1 : Patch lunettes en live ──────────────────────────────
+                # On recalcule le patch toutes les PATCH_REFRESH frames pour
+                # ne pas bloquer le thread vidéo (PGD 40 steps est lent sur CPU).
+                # Entre deux recalculs on réapplique le dernier crop attaqué.
+                if patch_active:
+                    target_emb = face_recognizer.enrolled_embeddings.get(patch_target)
+                    if target_emb is not None:
+                        if frame_count % PATCH_REFRESH == 0:
+                            _patch_cache['crop'] = patch_attacker.attack(
+                                face_crop, target_emb
+                            )
+                        if _patch_cache['crop'] is not None:
+                            face_crop   = cv2.resize(
+                                _patch_cache['crop'],
+                                (face_crop.shape[1], face_crop.shape[0])
+                            )
+                            patch_label = f"[PATCH→{patch_target}]"
+                    else:
+                        logging.warning(f"[T1] Cible '{patch_target}' non enrôlée.")
+                # ── fin T1 ───────────────────────────────────────────────────
 
                 # Défense locale si mode durci
                 if current_mode == 'hardened':
@@ -300,6 +330,17 @@ def _video_thread():
                     except queue.Full:
                         pass  # on drop, pas de blocage
 
+                # ── T1 : réinjecter le crop attaqué dans la frame affichée ──
+                if patch_active and _patch_cache['crop'] is not None:
+                    x1, y1, x2, y2 = bboxes[0]
+                    h_img, w_img = frame.shape[:2]
+                    rx1, ry1 = max(0, x1), max(0, y1)
+                    rx2, ry2 = min(w_img, x2), min(h_img, y2)
+                    frame[ry1:ry2, rx1:rx2] = cv2.resize(
+                        face_crop, (rx2 - rx1, ry2 - ry1)
+                    )
+                # ── fin réinjection ──────────────────────────────────────────
+
             # Overlay
             with state_lock:
                 identity = state.identity
@@ -310,7 +351,8 @@ def _video_thread():
             hex_color = ui_cfg['color'].lstrip('#')
             color_bgr = tuple(int(hex_color[i:i+2], 16) for i in (4, 2, 0))
             cv2.rectangle(frame, (x1, y1), (x2, y2), color_bgr, 2)
-            cv2.putText(frame, f"{identity} ({conf:.2f})",
+            label_text = f"{identity} ({conf:.2f}) {patch_label}".strip()   # T1
+            cv2.putText(frame, label_text,
                         (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_bgr, 2)
 
         with state_lock:
@@ -356,6 +398,8 @@ def get_status():
             'anomaly_detected': state.anomaly_detected,
             'anomaly_score':    round(state.anomaly_score, 4),
             'attack_active':    state.attack_active,
+            'patch_active':     state.patch_active,   # T1
+            'patch_target':     state.patch_target,   # T1
             'model_mode':       state.model_mode,
             'fps':              state.fps,
             'confidence':       round(state.confidence, 4),
@@ -371,6 +415,50 @@ def toggle_attack():
     status = "activée" if data['active'] else "désactivée"
     logging.info(f"Attaque {status}")
     return jsonify({"success": True, "message": f"Attaque {status}."})
+
+
+# ── T1 : Route toggle patch lunettes en live ──────────────────────────────────
+@app.route('/api/toggle_patch_live', methods=['POST'])
+def toggle_patch_live():
+    """
+    Active / désactive l'attaque par patch lunettes sur le flux vidéo en direct.
+
+    Body JSON attendu :
+        { "active": true/false, "target": "Manager_Demo" }   ← target optionnel
+
+    Retourne :
+        { "success": true, "patch_active": bool, "patch_target": str }
+    """
+    data = request.json or {}
+    if 'active' not in data:
+        return jsonify({"success": False, "error": "Paramètre 'active' manquant."}), 400
+
+    target = data.get('target', state.patch_target)
+
+    # Vérifier que la cible est bien enrôlée avant d'activer
+    if data['active'] and target not in face_recognizer.enrolled_embeddings:
+        enrolled = list(face_recognizer.enrolled_embeddings.keys())
+        return jsonify({
+            "success":  False,
+            "error":    f"Cible '{target}' non enrôlée.",
+            "enrolled": enrolled,
+        }), 404
+
+    with state_lock:
+        state.patch_active = bool(data['active'])
+        state.patch_target = target
+        if not state.patch_active:
+            _patch_cache['crop'] = None   # vider le cache quand on désactive
+
+    status = "activée" if state.patch_active else "désactivée"
+    logging.info(f"[T1] Attaque patch live {status} → cible={target}")
+    return jsonify({
+        "success":      True,
+        "patch_active": state.patch_active,
+        "patch_target": state.patch_target,
+        "message":      f"Attaque patch {status} (cible : {target}).",
+    })
+# ── fin T1 ───────────────────────────────────────────────────────────────────
 
 @app.route('/api/toggle_mode', methods=['POST'])
 def toggle_mode():
