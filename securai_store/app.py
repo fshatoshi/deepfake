@@ -14,6 +14,8 @@ from modules.fgsm_attacker   import FGSMAttacker
 from modules.patch_attacker  import PatchAttacker
 from modules.defender        import Defender
 from modules.anomaly_detector import AnomalyDetector
+from modules.liveness_detector import LivenessDetector        # T5
+from modules.anti_spoofing   import require_jwt          # T5
 from rights_manager import RightsManager
 from paths import BASE_DIR, MODELS_DIR, ENROLLED_DIR, AUDIT_LOG
 
@@ -85,6 +87,7 @@ face_recognizer  = FaceRecognizer(mode='standard')
 fgsm_attacker    = FGSMAttacker(face_recognizer.model, epsilon=0.03)
 defender         = Defender()
 anomaly_detector = AnomalyDetector()
+liveness_detector = LivenessDetector(threshold=0.5)           # T5
 patch_attacker   = PatchAttacker(face_recognizer.model, epsilon=0.35, steps=40, alpha=0.02)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -136,11 +139,18 @@ def _decode_b64(b64_str: str) -> np.ndarray | None:
 # ─────────────────────────────────────────────────────────────────────────────
 # INFÉRENCE DISTANTE — toutes les fonctions utilisent HF (plus de Colab)
 # ─────────────────────────────────────────────────────────────────────────────
+_hf_retry_after: float = 0.0   # timestamp — skip les appels HF jusqu'à cette date
+
 def send_to_hf_infer(face_crop: np.ndarray) -> dict | None:
     """
     Envoie un crop 160x160 vers HF /infer.
     Retourne dict {name, confidence, access} ou None si erreur.
+    Backoff automatique de 30s si le Space répond 503 (en veille).
     """
+    global _hf_retry_after
+    if time.time() < _hf_retry_after:
+        return None   # Space en veille — on skip silencieusement
+
     try:
         t0   = time.time()
         resp = hf_session.post(
@@ -167,8 +177,12 @@ def send_to_hf_infer(face_crop: np.ndarray) -> dict | None:
         logging.warning("HF /infer timeout")
         return None
     except Exception as e:
-        print(f"[HF INFER] Erreur : {e}")
-        logging.error(f"HF /infer : {e}")
+        if "503" in str(e):
+            _hf_retry_after = time.time() + 30
+            logging.warning("[HF] Space en veille — retry dans 30s")
+        else:
+            print(f"[HF INFER] Erreur : {e}")
+            logging.error(f"HF /infer : {e}")
         return None
 
 
@@ -283,12 +297,37 @@ def _video_thread():
         is_attacked = False
         anom_score  = 0.0
         patch_label = ""                          # T1 — label overlay conditionnel
+        is_spoof    = False                       # T5 — liveness
 
         if bboxes:
             bbox      = bboxes[0]
             face_crop = face_detector.crop_face(frame, bbox, size=FACE_CROP_SIZE)
 
             if face_crop is not None:
+
+                # ── T5 : Liveness check (anti-spoofing LBP) ──────────────────
+                # Exécuté toutes les FRAME_SKIP frames pour ne pas surcharger
+                if frame_count % FRAME_SKIP == 0:
+                    is_real, liveness_score, liveness_reason = liveness_detector.analyze(face_crop)
+                    is_spoof = not is_real
+                    if is_spoof:
+                        logging.warning(f"[T5] SPOOF détecté — {liveness_reason}")
+                        with state_lock:
+                            state.identity     = "SPOOF"
+                            state.access_level = "DENIED"
+                            state.confidence   = liveness_score
+                # ── fin T5 ───────────────────────────────────────────────────
+
+                # Si spoofing → skip toute la reconnaissance
+                if is_spoof:
+                    x1, y1, x2, y2 = bboxes[0]
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                    cv2.putText(frame, "⚠ SPOOF DETECTED",
+                                (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.7, (0, 0, 255), 2)
+                    frame_count += 1
+                    continue
+
                 # FGSM déporté sur HF (toutes les FRAME_SKIP frames)
                 if attack_active and frame_count % FRAME_SKIP == 0:
                     attacked = send_to_hf_fgsm(face_crop)
@@ -476,6 +515,7 @@ def toggle_mode():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/enroll', methods=['POST'])
+@require_jwt
 def enroll():
     if 'image' not in request.files or 'name' not in request.form:
         return jsonify({"success": False, "error": "Données manquantes."}), 400
