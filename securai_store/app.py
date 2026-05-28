@@ -15,7 +15,6 @@ from modules.patch_attacker  import PatchAttacker
 from modules.defender        import Defender
 from modules.anomaly_detector import AnomalyDetector
 from modules.liveness_detector import LivenessDetector        # T5
-from modules.anti_spoofing   import require_jwt          # T5
 from rights_manager import RightsManager
 from paths import BASE_DIR, MODELS_DIR, ENROLLED_DIR, AUDIT_LOG
 
@@ -87,7 +86,7 @@ face_recognizer  = FaceRecognizer(mode='standard')
 fgsm_attacker    = FGSMAttacker(face_recognizer.model, epsilon=0.03)
 defender         = Defender()
 anomaly_detector = AnomalyDetector()
-liveness_detector = LivenessDetector(threshold=0.5)           # T5
+liveness_detector = LivenessDetector(threshold=0.30, upper_threshold=0.48)           # T5
 patch_attacker   = PatchAttacker(face_recognizer.model, epsilon=0.35, steps=40, alpha=0.02)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -272,6 +271,7 @@ def _video_thread():
     fps_count   = 0
     fps_start   = time.time()
 
+    _spoof_counter: dict = {'n': 0}
     while True:
         ok, frame = camera.read()
         if not ok:
@@ -309,13 +309,11 @@ def _video_thread():
                 # Exécuté toutes les FRAME_SKIP frames pour ne pas surcharger
                 if frame_count % FRAME_SKIP == 0:
                     is_real, liveness_score, liveness_reason = liveness_detector.analyze(face_crop)
-                    is_spoof = not is_real
-                    if is_spoof:
-                        logging.warning(f"[T5] SPOOF détecté — {liveness_reason}")
-                        with state_lock:
-                            state.identity     = "SPOOF"
-                            state.access_level = "DENIED"
-                            state.confidence   = liveness_score
+                    if not is_real:
+                        _spoof_counter['n'] = _spoof_counter.get('n', 0) + 1
+                    else:
+                        _spoof_counter['n'] = 0
+                    is_spoof = _spoof_counter['n'] >= 5   # 5 frames consécutives → SPOOF
                 # ── fin T5 ───────────────────────────────────────────────────
 
                 # Si spoofing → skip toute la reconnaissance
@@ -515,7 +513,6 @@ def toggle_mode():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/enroll', methods=['POST'])
-@require_jwt
 def enroll():
     if 'image' not in request.files or 'name' not in request.form:
         return jsonify({"success": False, "error": "Données manquantes."}), 400
