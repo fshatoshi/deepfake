@@ -41,16 +41,10 @@ class LivenessDetector:
         is_real, score, reason = detector.analyze(face_crop_bgr)
     """
 
-    def __init__(self, threshold: float = 0.5):
-        """
-        Parameters
-        ----------
-        threshold : score minimum pour considérer le visage comme réel (0-1).
-                    Augmenter → plus strict (moins de faux positifs).
-                    Diminuer  → plus permissif (moins de faux négatifs).
-        """
+    def __init__(self, threshold: float = 0.30, upper_threshold: float = 0.46):
         self.threshold = threshold
-        logging.info(f"[LivenessDetector] Initialisé (seuil={threshold})")
+        self.upper_threshold = upper_threshold
+        logging.info(f"[LivenessDetector] Initialisé (seuil={threshold}, upper={upper_threshold})")
 
     # ── API publique ──────────────────────────────────────────────────────────
 
@@ -87,7 +81,7 @@ class LivenessDetector:
         )
         score = float(np.clip(score, 0.0, 1.0))
 
-        is_real = score >= self.threshold
+        is_real = self.threshold <= score <= self.upper_threshold
 
         if is_real:
             reason = f"Visage réel (score={score:.2f})"
